@@ -101,7 +101,7 @@ func (obj *PubKey) Address() []byte {
 }
 
 // 检查地址是否有效
-func (obj *PubKey) VerifyAddress() bool {
+func (obj *PubKey) VerifyAddress(address string) bool {
 	pubKeyHash := base58.Decode(address)
 	actualChecksum := pubKeyHash[len(pubKeyHash)-addressChecksumLen:]
 	version := pubKeyHash[0]
@@ -111,7 +111,7 @@ func (obj *PubKey) VerifyAddress() bool {
 }
 
 // 校难签名
-func (obj *PubKey) Verify(data []byte, sign string) bool {
+func (obj *PubKey) Verify(sign string, data []byte) bool {
 	public := pubEcdsaByComplete(obj.Complete)
 	hash := sha256.Sum256(data)
 	// 验签
@@ -122,6 +122,19 @@ func (obj *PubKey) Verify(data []byte, sign string) bool {
 	s.SetBytes(sign[(sigLen / 2):])
 
 	return ecdsa.Verify(public, hash, &r, &s)
+}
+
+// 校验签名
+func VerifyByComplete(complete []byte, sign string, data []byte) bool {
+	public_key := &PubKey{Complete: complete}
+	return public_key.Verify(sign, data)
+}
+
+// 短公钥校验
+func VerifyByShort(short []byte, sign string, data []byte) bool {
+	complete := base58.Decode(short)
+	public_key := &PubKey{Complete: complete}
+	return public_key.Verify(sign, data)
 }
 
 // 签名
