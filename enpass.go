@@ -9,9 +9,9 @@ import (
 
 type Aes struct {
 	Iv         []byte // 加密参数
+	_iv2       []byte // 二次加密参数
 	PassCipher []byte // 密码密文
 	EnCipher   []byte // 加密密文
-	PubVi      []byte // 公钥md5
 }
 
 // 得到16位md5加密信息
@@ -29,23 +29,23 @@ func _g32md5(value []byte) []byte {
 	return append(Lpass, Rpass...)
 }
 
-//  得到AES对象
-func NewAes(public []byte) *Aes {
-	return &Aes{PubVi: _g16md5(public)}
+//  得到AES对象 vi2 二次辅助加密参数
+func NewAes(param_iv2 []byte) *Aes {
+	return &Aes{PubVi: _g16md5(param_iv2)}
 }
 
 // 根据信息得到加密对象
-func AesByInfo(public, iv, pass_cipher, en_cipher []byte) *Aes {
+func AesByInfo(param_iv2, iv, pass_cipher, en_cipher []byte) *Aes {
 	return &Aes{
 		Iv:         iv,
+		_iv2:       _g16md5(param_iv2),
 		PassCipher: pass_cipher,
 		EnCipher:   en_cipher,
-		PubVi:      _g16md5(public),
 	}
 }
 
 //  加密私钥
-func (obj *Aes) EnPrivate(passwd, value []byte) *Aes {
+func (obj *Aes) EnValue(passwd, value []byte) *Aes {
 	b_pass := _g32md5(passwd)
 	iv := _rand_bytes(16)          // 生成加密参数
 	master_pass := _rand_bytes(32) // 生成主密码
@@ -53,18 +53,18 @@ func (obj *Aes) EnPrivate(passwd, value []byte) *Aes {
 	param_en := _en_cbc(b_pass, iv, master_passm)
 	param_base := base58.Encode(param_en)
 
-	private_en := _en_cbc(master_pass, obj.PubVi, value)
-	private_base := base58.Encode(private_en)
+	pass_en := _en_cbc(master_pass, obj._iv2, value)
+	pass_base := base58.Encode(pass_en)
 
 	return &Aes{
 		Iv:         iv,
 		PassCipher: param_base,
-		EnCipher:   private_base,
+		EnCipher:   pass_base,
 	}
 }
 
 // 解密信息
-func (obj *Aes) DePrivate(passwd []byte) []byte {
+func (obj *Aes) DeValue(passwd []byte) []byte {
 	b_pass := _g32md5(passwd)
 	pass_cipher_detail := base58.Decode(obj.PassCipher)
 	master_pass := _de_cbc(b_pass, obj.Iv, pass_cipher_detail)

@@ -6,6 +6,12 @@ import (
 	"crypto/rand"
 )
 
+// 钱包类型
+type Wallet struct {
+	PrivateKey *PrivKey
+	PublicKey  *PubKey
+}
+
 // 私钥信息
 type PrivKey struct {
 	Ecdsa    *ecdsa.PrivateKey
@@ -171,4 +177,11 @@ func PrivByComplete(complete []byte) *PrivKey {
 func PrivByShort(short []byte) *PrivKey {
 	complete := base58.Decode(short)
 	return PrivByComplete(complete)
+}
+
+// 加密私钥
+func (obj *Wallet) EnKey(passwd string) *Aes {
+	aes := NewAes(obj.PublicKey.Complete)
+	aes.EnValue([]byte(passwd), obj.PrivKey.Complete)
+	return aes
 }
