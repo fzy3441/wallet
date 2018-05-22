@@ -4,6 +4,13 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
+	"math/big"
+
+	"bytes"
+	"crypto/sha256"
+	"fmt"
+	"github.com/btcsuite/btcutil/base58"
+	"golang.org/x/crypto/ripemd160"
 )
 
 // 钱包类型
@@ -29,7 +36,8 @@ const addressChecksumLen = 4 // 钱包地址长度
 const privKeyBytesLen = 32   // 私钥长度
 
 // 创建密钥
-func createCurve() (*PrivateKey, *PublicKey) {
+// func createCurve() (*PrivateKey, *PublicKey) {
+func NewWallet() *Wallet {
 	curve := elliptic.P256()
 	private, _ := ecdsa.GenerateKey(curve, rand.Reader)
 	d := private.D.Bytes()
@@ -40,7 +48,14 @@ func createCurve() (*PrivateKey, *PublicKey) {
 	public_key := &PubKey{Complete: pub_complete}
 	private_key := &PrivKey{Ecdsa: private, Complete: priv_complete}
 
-	return private_key, public_key
+	// return private_key, public_key
+	wallet := &Wallet{
+		PrivateKey: private_key,
+		PublicKey:  public_key,
+	}
+
+	wallet.PublicKey._genAddress()
+	return wallet
 }
 
 // 处理私钥编码
@@ -64,21 +79,25 @@ func pubEcdsaByComplete(complete []byte) *ecdsa.PublicKey {
 	return &public
 }
 
-// 将短公角地址转换成Ecdsa公角对象
-func pubEcdsaByShort(short []byte) *ecdsa.PublicKey {
-	complete := base58.Decode(short)
-	return PubByComplete(complete)
-}
+// // 将短公角地址转换成Ecdsa公角对象
+// func pubEcdsaByShort(short []byte) *ecdsa.PublicKey {
+// 	complete := base58.Decode(short)
+// 	pubEcdsaByComplete(complete)
+// 	// return PubByComplete(complete)
+
+// }
 
 // 将完整公钥地址转换成公钥对象
-func PubByComplete(complete []byte) *PubKey {
-	return &Pubkey{Complete: complete}
+func (obj *Wallet) PubByComplete(complete []byte) {
+	obj.PublicKey = &PubKey{Complete: complete}
+	// return &PubKey{Complete: complete}
 }
 
 // 将短公角地址转换成公角对象
-func PubByShort(short []byte) *PubKey {
+func (obj *Wallet) PubByShort(short string) {
 	complete := base58.Decode(short)
-	return &Pubkey{Complete: complete}
+	obj.PubByComplete(complete)
+	// return &Pubkey{Complete: complete}
 }
 
 // 短公钥信息
@@ -87,13 +106,10 @@ func (obj *PubKey) Short() []byte {
 }
 
 // 生成钱包地址
-func (obj *PubKey) Address() []byte {
+func (obj *PubKey) _genAddress() []byte {
 	publicSHA256 := sha256.Sum256(obj.Complete)
 	RIPEMD160Hasher := ripemd160.New()
 	RIPEMD160Hasher.Write(publicSHA256[:])
-	if err != nil {
-		return nil
-	}
 
 	publicRIPEMD160 := RIPEMD160Hasher.Sum(nil)
 	versionedPayload := append([]byte{version}, publicRIPEMD160...)
@@ -112,14 +128,21 @@ func (obj *PubKey) VerifyAddress(address string) bool {
 	actualChecksum := pubKeyHash[len(pubKeyHash)-addressChecksumLen:]
 	version := pubKeyHash[0]
 	pubKeyHash = pubKeyHash[1 : len(pubKeyHash)-addressChecksumLen]
-	targetChecksum := checksum(append([]byte{version}, pubKeyHash...))
+
+	// 检查公钥长度
+	firstSHA := sha256.Sum256(append([]byte{version}, pubKeyHash...))
+	secondSHA := sha256.Sum256(firstSHA[:])
+	targetChecksum := secondSHA[:addressChecksumLen]
+
 	return bytes.Compare(actualChecksum, targetChecksum) == 0
 }
 
 // 校难签名
-func (obj *PubKey) Verify(sign string, data []byte) bool {
+func (obj *PubKey) _verify(sign, data []byte) bool {
 	public := pubEcdsaByComplete(obj.Complete)
 	hash := sha256.Sum256(data)
+	fmt.Println("hash2===>", hash)
+	fmt.Println("sign2===>", sign)
 	// 验签
 	r := big.Int{}
 	s := big.Int{}
@@ -127,61 +150,83 @@ func (obj *PubKey) Verify(sign string, data []byte) bool {
 	r.SetBytes(sign[:(sigLen / 2)])
 	s.SetBytes(sign[(sigLen / 2):])
 
-	return ecdsa.Verify(public, hash, &r, &s)
+	return ecdsa.Verify(public, hash[:], &r, &s)
 }
 
 // 校验签名
-func VerifyByComplete(complete []byte, sign string, data []byte) bool {
-	public_key := &PubKey{Complete: complete}
-	return public_key.Verify(sign, data)
+func (obj *Wallet) Verify(sign string, data []byte) bool {
+	// public_key := &PubKey{Complete: complete}
+	byte_sing := base58.Decode(sign)
+	return obj.PublicKey._verify([]byte(byte_sing), data)
+	// return public_key.Verify(sign, data)
 }
 
-// 短公钥校验
-func VerifyByShort(short []byte, sign string, data []byte) bool {
-	complete := base58.Decode(short)
-	public_key := &PubKey{Complete: complete}
-	return public_key.Verify(sign, data)
+// // 短公钥校验
+// func (obj *Wallet) VerifyByShort(short, sign string, data []byte) bool {
+// 	complete := base58.Decode(short)
+// 	// public_key := &PubKey{Complete: complete}
+// 	return obj.PublicKey._verify([]byte(complete), data)
+// 	// return public_key.Verify(sign, data)
+// }
+
+// 签名数据
+func (obj *Wallet) Sign(data []byte) (string, error) {
+	return obj.PrivateKey._sign(data)
 }
 
 // 签名
-func (obj *PrivKey) Sign(data []byte) (string, error) {
+func (obj *PrivKey) _sign(data []byte) (string, error) {
 	hash := sha256.Sum256(data)
 
-	r, s, err := ecdsa.Sign(rand.Reader, obj.Ecdsa, hash)
+	fmt.Println("hash1===>", hash)
+	r, s, err := ecdsa.Sign(rand.Reader, obj.Ecdsa, hash[:])
 	if err != nil {
-		return nil, err
+		return "", err
 	}
 
 	byte_sing := append(r.Bytes(), s.Bytes()...)
 	sign := base58.Encode(byte_sing)
-
+	fmt.Println("sign1===>", byte_sing)
+	fmt.Println("sign3===>", sign)
 	return sign, nil
 }
 
 // 将完整私钥地址还原私钥对象
-func PrivByComplete(complete []byte) *PrivKey {
+func (obj *Wallet) PrivByComplete(complete []byte) {
 	// 转换为ecdsa
 	priv := new(ecdsa.PrivateKey)
 	priv.PublicKey.Curve = elliptic.P256()
 
-	priv.D = new(big.Int).SetBytes(obj.AllKey)
-	priv.PublicKey.X, priv.PublicKey.Y = priv.PublicKey.Curve.ScalarBaseMult(obj.AllKey)
+	priv.D = new(big.Int).SetBytes(complete)
+	priv.PublicKey.X, priv.PublicKey.Y = priv.PublicKey.Curve.ScalarBaseMult(complete)
 
-	return &PrivKey{
+	obj.PrivateKey = &PrivKey{
 		Ecdsa:    priv,
 		Complete: complete,
 	}
 }
 
 // 通过短私钥还原私钥对象
-func PrivByShort(short []byte) *PrivKey {
+func (obj *Wallet) PrivByShort(short string) {
 	complete := base58.Decode(short)
-	return PrivByComplete(complete)
+	obj.PrivByComplete([]byte(complete))
 }
 
 // 加密私钥
 func (obj *Wallet) EnKey(passwd string) *Aes {
 	aes := NewAes(obj.PublicKey.Complete)
-	aes.EnValue([]byte(passwd), obj.PrivKey.Complete)
+	aes.EnValue([]byte(passwd), obj.PrivateKey.Complete)
 	return aes
+}
+
+func (obj *Wallet) DeKey(passwd string, iv []byte, pass_cipher, en_cipher string) bool {
+	aes := AesByInfo(obj.PublicKey.Complete, iv, pass_cipher, en_cipher)
+	str_priv, err := aes.DeValue([]byte(passwd))
+	if err != nil {
+		return false
+	}
+
+	obj.PrivByComplete(str_priv)
+
+	return true
 }
